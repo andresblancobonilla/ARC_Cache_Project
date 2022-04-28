@@ -4,16 +4,14 @@ import (
 	"container/list"
 )
 
-// An ARC is a fixed-size in-memory cache with adaptive replacement eviction
-type ARC struct {
-	cache          map[string]Value
-	t1List         *LRU
-	t2List         *LRU
-	b1List         *LRU
-	b2List         *LRU
-	totalUsedBytes int
-	limit          int
-	stats          Stats
+// An LRU is a fixed-size in-memory cache with least-recently-used eviction
+type LRU struct {
+	// whatever fields you want here
+	cache     map[string]Value
+	nodes     *list.List
+	usedBytes int
+	limit     int
+	stats     Stats
 }
 
 type Value struct {
@@ -21,30 +19,15 @@ type Value struct {
 	element *list.Element
 }
 
-type CacheList struct {
-	list  *list.List
-	cache map[string]Value
-}
-
-func NewCacheList() *CacheList {
-	var cacheList CacheList
-	cacheList.list = list.New()
-	cacheList.cache = make(map[string]Value)
-	return &cacheList
-}
-
 // NewLRU returns a pointer to a new LRU with a capacity to store limit bytes
-func NewARC(limit int) *ARC {
-	var arc ARC
-	arc.cache = make(map[string]Value)
-	arc.t1List = NewCacheList()
-	arc.t2List = NewCacheList()
-	arc.b1List = NewCacheList()
-	arc.bList = NewCacheList()
-	arc.usedBytes = 0
-	arc.limit = limit
-	arc.stats = Stats{0, 0}
-	return &arc
+func NewLru(limit int) *LRU {
+	var lru LRU
+	lru.cache = make(map[string]Value)
+	lru.nodes = new(list.List)
+	lru.usedBytes = 0
+	lru.limit = limit
+	lru.stats = Stats{0, 0}
+	return &lru
 }
 
 // func NewVal(bytes []byte, element *list.Element) *Value {
