@@ -20,7 +20,7 @@ type Value struct {
 }
 
 // NewLRU returns a pointer to a new LRU with a capacity to store limit bytes
-func NewLru(limit int) *LRU {
+func NewLRU(limit int) *LRU {
 	var lru LRU
 	lru.cache = make(map[string]Value)
 	lru.nodes = new(list.List)

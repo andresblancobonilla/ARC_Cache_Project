@@ -1,47 +1,36 @@
 package cache
 
-import (
-	"container/list"
-)
-
 // An ARC is a fixed-size in-memory cache with adaptive replacement eviction
 type ARC struct {
-	cache          map[string]Value
-	t1List         *LRU
-	t2List         *LRU
-	b1List         *LRU
-	b2List         *LRU
+	t1List         CacheList
+	t2List         CacheList
+	b1List         CacheList
+	b2List         CacheList
+	target         int
 	totalUsedBytes int
 	limit          int
 	stats          Stats
 }
 
-type Value struct {
-	bytes   []byte
-	element *list.Element
-}
-
 type CacheList struct {
-	list  *list.List
-	cache map[string]Value
+	lru *LRU
 }
 
-func NewCacheList() *CacheList {
+func NewCacheList(limit int) CacheList {
 	var cacheList CacheList
-	cacheList.list = list.New()
-	cacheList.cache = make(map[string]Value)
-	return &cacheList
+	cacheList.lru = NewLRU(limit)
+	return cacheList
 }
 
 // NewLRU returns a pointer to a new LRU with a capacity to store limit bytes
 func NewARC(limit int) *ARC {
 	var arc ARC
-	arc.cache = make(map[string]Value)
-	arc.t1List = NewCacheList()
-	arc.t2List = NewCacheList()
-	arc.b1List = NewCacheList()
-	arc.bList = NewCacheList()
-	arc.usedBytes = 0
+	arc.t1List = NewCacheList(limit)
+	arc.t2List = NewCacheList(limit)
+	arc.b1List = NewCacheList(limit)
+	arc.b2List = NewCacheList(limit)
+	arc.target = 0
+	arc.totalUsedBytes = 0
 	arc.limit = limit
 	arc.stats = Stats{0, 0}
 	return &arc
@@ -55,19 +44,19 @@ func NewARC(limit int) *ARC {
 // }
 
 // MaxStorage returns the maximum number of bytes this LRU can store
-func (lru *LRU) MaxStorage() int {
-	return lru.limit
+func (arc *ARC) MaxStorage() int {
+	return arc.limit
 }
 
 // RemainingStorage returns the number of unused bytes available in this LRU
-func (lru *LRU) RemainingStorage() int {
-	return (lru.limit - lru.usedBytes)
+func (arc *ARC) RemainingStorage() int {
+	return (arc.limit - arc.totalUsedBytes)
 }
 
 // Get returns the value associated with the given key, if it exists.
 // This operation counts as a "use" for that key-value pair
 // ok is true if a value was found and false otherwise.
-func (lru *LRU) Get(key string) (value []byte, ok bool) {
+func (arc *ARC) Get(key string) (value []byte, ok bool) {
 
 	if value, found := lru.cache[key]; found {
 		lru.stats.Hits++
