@@ -2,24 +2,14 @@ package cache
 
 // An ARC is a fixed-size in-memory cache with adaptive replacement eviction
 type ARC struct {
-	t1List         CacheList
-	t2List         CacheList
-	b1List         CacheList
-	b2List         CacheList
+	t1List         *LRU
+	t2List         *LRU
+	b1List         *LRU
+	b2List         *LRU
 	target         int
 	totalUsedBytes int
 	limit          int
 	stats          Stats
-}
-
-type CacheList struct {
-	lru *LRU
-}
-
-func NewCacheList(limit int) CacheList {
-	var cacheList CacheList
-	cacheList.lru = NewLRU(limit)
-	return cacheList
 }
 
 // NewLRU returns a pointer to a new LRU with a capacity to store limit bytes
@@ -58,7 +48,7 @@ func (arc *ARC) RemainingStorage() int {
 // ok is true if a value was found and false otherwise.
 func (arc *ARC) Get(key string) (value []byte, ok bool) {
 
-	if value, found := lru.cache[key]; found {
+	if value, found := arc.t1List.lru[key]; found {
 		lru.stats.Hits++
 
 		// testing, print front
