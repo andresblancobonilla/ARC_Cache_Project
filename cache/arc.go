@@ -13,8 +13,8 @@ type ARC struct {
 	stats          Stats
 }
 
-// NewARC returns a pointer to a new LRU with a capacity to store limit bytes
-func NewARC(limit int) *ARC {
+// NewARC returns a pointer to a new ARC with a capacity to store limited entries
+func NewARC(limit int) (*ARC, error) {
 	var arc ARC
 	arc.t1List = NewLRU(limit)
 	arc.t2List = NewLRU(limit)
@@ -24,7 +24,7 @@ func NewARC(limit int) *ARC {
 	arc.targetMarker = 0
 	arc.limit = limit
 	arc.stats = Stats{0, 0}
-	return &arc
+	return &arc, nil
 }
 
 // func NewVal(bytes []byte, element *list.Element) *Value {
@@ -39,9 +39,9 @@ func (arc *ARC) MaxStorage() int {
 	return arc.limit
 }
 
-// RemainingStorage returns the number of unused bytes available in this LRU
-func (arc *ARC) RemainingStorage() int {
-	return (arc.limit - (arc.t1List.usedBytes + arc.t2List.usedBytes))
+// RemainingStorage returns the number of unused spaces available for entries in this LRU
+func (arc *ARC) RemainingSpaces() int {
+	return (arc.limit - (arc.t1List.usedEntries + arc.t2List.usedEntries))
 }
 
 // Get returns the value associated with the given key, if it exists.
@@ -115,7 +115,7 @@ func (arc *ARC) Evict(key string) {
 	_, b2Hit := arc.b2List.Check(key)
 	var evictedKey string
 	//value, b2Hit := arc.b1List.Check(key)
-	if (arc.t1List.Len() >= 0) && (b2Hit && arc.t1List.Len() == arc.targetMarker) || arc.t1List.Len() > arc.targetMarker {
+	if (arc.t1List.Len() >= 1) && ((b2Hit && arc.t1List.Len() == arc.targetMarker) || arc.t1List.Len() > arc.targetMarker) {
 		evictedKey = arc.t1List.Evict()
 		arc.b1List.Set(evictedKey, nil)
 	} else {
@@ -165,10 +165,10 @@ func (arc *ARC) Access(key string) (hit bool) {
 // to make room. Returns true if the binding was added successfully, else false.
 func (arc *ARC) Set(key string, value []byte) bool {
 
-	t1Len := (arc.t1List.usedBytes)
-	b1Len := (arc.b1List.usedBytes)
-	t2Len := (arc.t2List.usedBytes)
-	b2Len := (arc.b2List.usedBytes)
+	t1Len := arc.t1List.Len()
+	b1Len := arc.b1List.Len()
+	t2Len := arc.t2List.Len()
+	b2Len := arc.b2List.Len()
 	l1Len := t1Len + b1Len
 	l2Len := t2Len + b2Len
 	totalLen := l1Len + l2Len
@@ -204,11 +204,11 @@ func (arc *ARC) Set(key string, value []byte) bool {
 		var evictedKey string
 		if l1Len == arc.limit {
 			if t1Len < arc.limit {
-				arc.b1List.Evict()
+				evictedKey = arc.b1List.Evict()
 				delete(arc.cacheDirectory, evictedKey)
 				arc.Evict(key)
 			} else {
-				evictedKey := arc.t1List.Evict()
+				evictedKey = arc.t1List.Evict()
 				arc.b1List.Set(evictedKey, nil)
 			}
 		}

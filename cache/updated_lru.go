@@ -6,11 +6,11 @@ import (
 
 // An LRU is a fixed-size in-memory cache with least-recently-used eviction
 type LRU struct {
-	cache     map[string]Value
-	nodes     *list.List
-	usedBytes int
-	limit     int
-	stats     Stats
+	cache       map[string]Value
+	nodes       *list.List
+	usedEntries int
+	limit       int
+	stats       Stats
 }
 
 type Value struct {
@@ -23,7 +23,7 @@ func NewLRU(limit int) *LRU {
 	var lru LRU
 	lru.cache = make(map[string]Value)
 	lru.nodes = new(list.List)
-	lru.usedBytes = 0
+	lru.usedEntries = 0
 	lru.limit = limit
 	lru.stats = Stats{0, 0}
 	return &lru
@@ -36,14 +36,14 @@ func NewLRU(limit int) *LRU {
 // 	return &value
 // }
 
-// MaxStorage returns the maximum number of bytes this LRU can store
-func (lru *LRU) MaxStorage() int {
+// MaxStorage returns the maximum number of entries this LRU can store
+func (lru *LRU) MaxEntries() int {
 	return lru.limit
 }
 
-// RemainingStorage returns the number of unused bytes available in this LRU
-func (lru *LRU) RemainingStorage() int {
-	return (lru.limit - lru.usedBytes)
+// RemainingSpaces returns the number of unused spaces for entries available in this LRU
+func (lru *LRU) RemainingSpaces() int {
+	return (lru.limit - lru.usedEntries)
 }
 
 // Get returns the value associated with the given key, if it exists.
@@ -109,7 +109,7 @@ func (lru *LRU) Check(key string) (value []byte, ok bool) {
 func (lru *LRU) Remove(key string) (value []byte, ok bool) {
 	if value, found := lru.cache[key]; found {
 		delete(lru.cache, key)
-		lru.usedBytes = lru.usedBytes - len(value.bytes) - len(key)
+		lru.usedEntries--
 		// traverse linked list to remove the given key
 		lru.nodes.Remove(value.element)
 		return value.bytes, true
@@ -123,7 +123,7 @@ func (lru *LRU) Remove(key string) (value []byte, ok bool) {
 func (lru *LRU) Evict() (key string) {
 	back := lru.nodes.Back()
 	evictedKey := back.Value.(string)
-	lru.usedBytes = lru.usedBytes - len(lru.cache[evictedKey].bytes) - len(evictedKey)
+	lru.usedEntries--
 	lru.nodes.Remove(back)
 	delete(lru.cache, evictedKey)
 	return evictedKey
@@ -133,7 +133,6 @@ func (lru *LRU) Evict() (key string) {
 // to make room. Returns true if the binding was added successfully, else false.
 func (lru *LRU) Set(key string, value []byte) bool {
 	if old_val, found := lru.cache[key]; found {
-		lru.usedBytes = lru.usedBytes - len(old_val.bytes) + len(value)
 		var new_val Value
 		new_val.bytes = value
 		new_val.element = old_val.element
@@ -141,14 +140,8 @@ func (lru *LRU) Set(key string, value []byte) bool {
 		lru.nodes.MoveToFront(new_val.element)
 		return true
 	}
+	if lru.RemainingSpaces() == 0 {
 
-	itemSize := len(value) + len(key)
-
-	if itemSize > lru.limit {
-		return false
-	}
-
-	for itemSize > lru.RemainingStorage() {
 		back := lru.nodes.Back()
 		// testing
 		// fmt.Sprint(back.Value)
@@ -158,7 +151,7 @@ func (lru *LRU) Set(key string, value []byte) bool {
 
 		// fmt.Println(evictedKey)
 
-		lru.usedBytes = lru.usedBytes - len(lru.cache[evictedKey].bytes) - len(evictedKey)
+		lru.usedEntries--
 		lru.nodes.Remove(back)
 		delete(lru.cache, evictedKey)
 	}
@@ -167,7 +160,7 @@ func (lru *LRU) Set(key string, value []byte) bool {
 	// element.Value = key
 	// fmt.Println("element Value: ", element.Value)
 	element := lru.nodes.PushFront(key)
-	lru.usedBytes += itemSize
+	lru.usedEntries++
 	var new_val Value
 	new_val.bytes = value
 	new_val.element = element
@@ -179,7 +172,7 @@ func (lru *LRU) Set(key string, value []byte) bool {
 
 // Len returns the number of bindings in the LRU.
 func (lru *LRU) Len() int {
-	return len(lru.cache)
+	return lru.usedEntries
 }
 
 // Stats returns statistics about how many search hits and misses have occurred.
