@@ -3,7 +3,6 @@ package cache
 import (
 	"encoding/binary"
 	"fmt"
-	"math/big"
 	"math/rand"
 	"testing"
 	"time"
@@ -357,14 +356,6 @@ func TestARC(t *testing.T) {
 		t.Fatalf("bad len: %v", l.Len())
 	}
 
-	for i, k := range l.cacheDirectory {
-		kv := int(big.NewInt(0).SetBytes(k.bytes).Uint64())
-		v, ok := l.Get(i)
-		vv := int(big.NewInt(0).SetBytes(v).Uint64())
-		if !ok || vv != kv {
-			t.Fatalf("bad key: %v", k)
-		}
-	}
 	for i := 0; i < 128; i++ {
 		s := fmt.Sprintf("%v", i)
 		_, ok := l.Get(s)

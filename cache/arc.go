@@ -1,12 +1,17 @@
 package cache
 
+import (
+	"os"
+	"path/filepath"
+)
+
 // An ARC is a fixed-size in-memory cache with adaptive replacement eviction
 type ARC struct {
 	t1List         *LRU
 	t2List         *LRU
 	b1List         *LRU
 	b2List         *LRU
-	cacheDirectory map[string]Value
+	cacheDirectory string
 	targetMarker   int
 	totalUsedBytes int
 	limit          int
@@ -20,7 +25,8 @@ func NewARC(limit int) (*ARC, error) {
 	arc.t2List = NewLRU(limit)
 	arc.b1List = NewLRU(limit)
 	arc.b2List = NewLRU(limit)
-	arc.cacheDirectory = make(map[string]Value)
+	arc.cacheDirectory = "Cache_Directory"
+	os.Mkdir(arc.cacheDirectory, 0777)
 	arc.targetMarker = 0
 	arc.limit = limit
 	arc.stats = Stats{0, 0}
@@ -48,116 +54,154 @@ func (arc *ARC) RemainingSpaces() int {
 // This operation counts as a "use" for that key-value pair
 // ok is true if a value was found and false otherwise.
 func (arc *ARC) Get(key string) (value []byte, ok bool) {
-	val, found := arc.cacheDirectory[key]
-	if found {
-		hit := arc.Access(key)
-		if hit {
+	value, inCacheDirectory := arc.CheckCacheDirectory(key)
+	if inCacheDirectory {
+		_, inCache := arc.CheckCache(key)
+		arc.Access(key)
+		if inCache {
 			arc.stats.Hits++
-			return val.bytes, true
+			ok = inCache
+			return value, ok
 		}
 	} else {
+		ok = false
 		arc.stats.Misses++
-		return nil, false
+		return nil, ok
 	}
-
 	return nil, false
 
-	// if value, found := arc.t1List.Check(key); found {
-	// 	arc.t1List.Remove(key)
-	// 	arc.t2List.Set(key, value)
-	// 	arc.stats.Hits++
-	// 	return value, true
-	// }
-	// if value, found := arc.t2List.Get(key); found {
-	// 	arc.stats.Hits++
-	// 	return value, true
-	// }
+}
 
-	// arc.stats.Misses++
-	// return nil, false
+// CheckCache returns the value associated with the given key, if it exists.
+// This operation DOES NOT counts as a "use" for that key-value pair
+// ok is true if a value was found and false otherwise.
+func (arc *ARC) CheckCache(key string) (value []byte, okarc bool) {
+	if val, found := arc.t1List.Check(key); found {
+		okarc = found
+		value = val
+	}
 
+	if val, found := arc.t2List.Check(key); found {
+		okarc = found
+		value = val
+	}
+	return value, okarc
+}
+
+// Check returns the value associated with the given key, if it exists.
+// This operation DOES NOT counts as a "use" for that key-value pair
+// ok is true if a value was found and false otherwise.
+func (arc *ARC) CheckCacheDirectory(key string) (value []byte, okcd bool) {
+
+	if val, found := arc.t1List.Check(key); found {
+		okcd = found
+		value = val
+	}
+
+	if val, found := arc.t2List.Check(key); found {
+		okcd = found
+		value = val
+	}
+
+	if _, found := arc.b1List.Check(key); found {
+		okcd = found
+		okcd = !found
+		value = nil
+	}
+	if _, found := arc.b2List.Check(key); found {
+		okcd = found
+		okcd = !found
+		value = nil
+	}
+
+	return value, okcd
 }
 
 // Remove removes and returns the value associated with the given key, if it exists.
 // ok is true if a value was found and false otherwise
 func (arc *ARC) Remove(key string) (value []byte, ok bool) {
-	if _, found := arc.cacheDirectory[key]; found {
+	value, found := arc.CheckCacheDirectory(key)
 
-		if value, found := arc.t1List.Check(key); found {
+	if !found {
+		ok = false
+	} else {
+		ok = true
+		if _, found := arc.t1List.Check(key); found {
 			arc.t1List.Remove(key)
-			return value, true
 		}
 
-		if value, found := arc.t2List.Check(key); found {
+		if _, found := arc.t2List.Check(key); found {
 			arc.t2List.Remove(key)
-			return value, true
 		}
 
-		if value, found := arc.b1List.Check(key); found {
+		if _, found := arc.b1List.Check(key); found {
 			arc.b1List.Remove(key)
-			return value, true
 		}
 
-		if value, found := arc.b2List.Check(key); found {
+		if _, found := arc.b2List.Check(key); found {
 			arc.b2List.Remove(key)
-			return value, true
 		}
-		delete(arc.cacheDirectory, key)
-
+		//arc.RemoveFromDisk(key)
 	}
-	return nil, false
+	return value, ok
 
 }
 
 // Evict evicts an entry adaptably from either T1 or T2 depending on the
 // location of the target marker in order to add a new entry.
 func (arc *ARC) Evict(key string) {
+	t1Len := arc.t1List.Len()
 	_, b2Hit := arc.b2List.Check(key)
 	var evictedKey string
 	//value, b2Hit := arc.b1List.Check(key)
-	if (arc.t1List.Len() >= 1) && ((b2Hit && arc.t1List.Len() == arc.targetMarker) || arc.t1List.Len() > arc.targetMarker) {
+	if (arc.t1List.Len() > 0) && ((b2Hit && (t1Len == arc.targetMarker)) || (t1Len > arc.targetMarker)) {
 		evictedKey = arc.t1List.Evict()
 		arc.b1List.Set(evictedKey, nil)
 	} else {
 		evictedKey = arc.t2List.Evict()
 		arc.b2List.Set(evictedKey, nil)
 	}
-	delete(arc.cacheDirectory, evictedKey)
 }
 
-// Access adapts the cache and the target marker based on if the access hit T1, T2, B1, or B2.
-// Returns true if the the access hit in T1 or T2, false otherwise.
-func (arc *ARC) Access(key string) (hit bool) {
-	b1Len := (arc.b1List.Len())
-	b2Len := (arc.b2List.Len())
+// Access accesses the cache directory in search of key,
+// and adapts the cache depending which list key was found in.
+func (arc *ARC) Access(key string) {
 
 	// Case I: key is found in either t1 or t2
 	if value, found := arc.t1List.Check(key); found {
 		arc.t1List.Remove(key)
 		arc.t2List.Set(key, value)
-		return true
+		return
 	}
 
 	if value, found := arc.t2List.Check(key); found {
 		arc.t2List.Set(key, value)
-		return true
+		return
 	}
 
+	b1Len := arc.b1List.Len()
+	b2Len := arc.b2List.Len()
+
 	// Case II: key is found in b1
-	if _, found := arc.b1List.Check(key); found {
+	if value, found := arc.b1List.Check(key); found {
 		ratio := b2Len / b1Len
 		arc.targetMarker = min(arc.limit, arc.targetMarker+max(ratio, 1))
 		arc.Evict(key)
-		return false
+		arc.b1List.Remove(key)
+		value = arc.ReadFromDisk(key)
+		arc.t2List.Set(key, value)
+		return
 	}
 	// Case III: key is found in b2
-	if _, found := arc.b2List.Check(key); found {
+	if value, found := arc.b2List.Check(key); found {
 		ratio := b1Len / b2Len
 		arc.targetMarker = max(0, arc.targetMarker-max(ratio, 1))
 		arc.Evict(key)
-		return false
+		arc.b2List.Remove(key)
+		value = arc.ReadFromDisk(key)
+		arc.t2List.Set(key, value)
+		return
 	}
-	return false
 
 }
 
@@ -172,40 +216,22 @@ func (arc *ARC) Set(key string, value []byte) bool {
 	l1Len := t1Len + b1Len
 	l2Len := t2Len + b2Len
 	totalLen := l1Len + l2Len
+	value, inCacheDirectory := arc.CheckCacheDirectory(key)
 
-	arc.Access(key)
-
-	_, found := arc.cacheDirectory[key]
-
-	if found {
-		if _, found := arc.t1List.Check(key); found {
-			arc.t1List.Set(key, value)
-			return true
-		}
-		if _, found := arc.t2List.Check(key); found {
-			arc.t2List.Set(key, value)
-			return true
-		}
-		if _, found := arc.b1List.Check(key); found {
-			arc.b1List.Remove(key)
-			arc.t2List.Set(key, value)
-			return true
-		}
-		if _, found := arc.b2List.Check(key); found {
-			arc.b2List.Remove(key)
-			arc.t2List.Set(key, value)
-			return true
-		}
+	if inCacheDirectory {
+		arc.Access(key)
+		arc.t2List.Set(key, value)
+		return true
 	}
 
 	// Case IV: key is not found
-	if !found {
-		// case (i)
+	if !inCacheDirectory {
+		// Case (A)
 		var evictedKey string
 		if l1Len == arc.limit {
 			if t1Len < arc.limit {
 				evictedKey = arc.b1List.Evict()
-				delete(arc.cacheDirectory, evictedKey)
+				//arc.RemoveFromDisk(evictedKey)
 				arc.Evict(key)
 			} else {
 				evictedKey = arc.t1List.Evict()
@@ -213,79 +239,54 @@ func (arc *ARC) Set(key string, value []byte) bool {
 			}
 		}
 
-		// case (ii)
+		// Case (B)
 		if l1Len < arc.limit && totalLen >= arc.limit {
 			if totalLen == 2*arc.limit {
 				arc.b2List.Evict()
-				delete(arc.cacheDirectory, evictedKey)
+				//arc.RemoveFromDisk(evictedKey)
 			}
 			arc.Evict(key)
 		}
 		arc.t1List.Set(key, value)
-		arc.cacheDirectory[key] = arc.t1List.cache[key]
+		arc.WriteToDisk(key, value)
 	}
 
 	return true
 
-	// t1Len := (arc.t1List.Len())
-	// b1Len := (arc.b1List.Len())
-	// t2Len := (arc.t2List.Len())
-	// b2Len := (arc.b2List.Len())
-	// l1Len := t1Len + b1Len
-	// l2Len := t2Len + b2Len
-	// totalLen := l1Len + l2Len
+}
 
-	// // Case I: key is found in either t1 or t2
-	// if _, found := arc.t1List.Check(key); found {
-	// 	arc.t1List.Remove(key)
-	// 	arc.t2List.Set(key, value)
-	// 	return true
-	// }
+// WriteToDisk writes the key/value pair to a new file on disk.
+// The key is the name of the file and the contents are the value.
+func (arc *ARC) WriteToDisk(key string, value []byte) {
+	path := filepath.Join(arc.cacheDirectory, key)
+	file, err := os.Create(path)
+	if err != nil {
+		panic(err)
+	}
+	defer file.Close()
+	file.Write(value)
+}
 
-	// if _, found := arc.t2List.Check(key); found {
-	// 	arc.t2List.Set(key, value)
-	// 	return true
-	// }
+// ReadFromDisk returns the value associated with a key.
+// The value is stored on disk in a file named the same as the key.
+func (arc *ARC) ReadFromDisk(key string) (value []byte) {
+	path := filepath.Join(arc.cacheDirectory, key)
+	file, err := os.Open(path)
+	if err != nil {
+		panic(err)
+	}
+	defer file.Close()
+	file.Read(value)
+	return value
+}
 
-	// // Case II: key is found in b1
-	// if _, found := arc.b1List.Check(key); found {
-	// 	ratio := b2Len / b1Len
-	// 	arc.targetMarker = min(arc.limit, arc.targetMarker+max(ratio, 1))
-	// 	arc.Evict(key)
-	// 	arc.b1List.Remove(key)
-	// 	arc.t2List.Set(key, value)
-	// }
-	// // Case III: key is found in b2
-	// if value, found := arc.b2List.Check(key); found {
-	// 	ratio := b1Len / b2Len
-	// 	arc.targetMarker = max(0, arc.targetMarker-max(ratio, 1))
-	// 	arc.Evict(key)
-	// 	arc.b2List.Remove(key)
-	// 	arc.t2List.Set(key, value)
-	// }
-	// Case IV: key is not found
-
-	// case (i)
-	// if l1Len == arc.limit {
-	// 	if t1Len < arc.limit {
-	// 		arc.b1List.Evict()
-	// 		arc.Evict(key)
-	// 	} else {
-	// 		evictedKey := arc.t1List.Evict()
-	// 		arc.b1List.Set(evictedKey, nil)
-	// 	}
-	// }
-
-	// // case (ii)
-	// if l1Len < arc.limit && totalLen >= arc.limit {
-	// 	if totalLen == 2*arc.limit {
-	// 		arc.b2List.Evict()
-	// 	}
-	// 	arc.Evict(key)
-	// }
-
-	// arc.t1List.Set(key, value)
-	// return true
+// RemoveFromDisk deletes the file associated with a key on disk.
+func (arc *ARC) RemoveFromDisk(key string) {
+	path := filepath.Join(arc.cacheDirectory, key)
+	err := os.Remove(path)
+	if err != nil {
+		panic(err)
+	}
 }
 
 // Len returns the number of bindings in the ARC.
