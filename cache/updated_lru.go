@@ -6,7 +6,6 @@ import (
 
 // An LRU is a fixed-size in-memory cache with least-recently-used eviction
 type LRU struct {
-	// whatever fields you want here
 	cache     map[string]Value
 	nodes     *list.List
 	usedBytes int
@@ -117,6 +116,17 @@ func (lru *LRU) Remove(key string) (value []byte, ok bool) {
 	} else {
 		return nil, false
 	}
+}
+
+// Evict removes the least recently used binding from the LRU
+// and returns the key associated with it.
+func (lru *LRU) Evict() (key string) {
+	back := lru.nodes.Back()
+	evictedKey := back.Value.(string)
+	lru.usedBytes = lru.usedBytes - len(lru.cache[evictedKey].bytes) - len(evictedKey)
+	lru.nodes.Remove(back)
+	delete(lru.cache, evictedKey)
+	return evictedKey
 }
 
 // Set associates the given value with the given key, possibly evicting values
