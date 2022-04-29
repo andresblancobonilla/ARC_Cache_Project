@@ -222,6 +222,7 @@ func (arc *ARC) Set(key string, value []byte) bool {
 			arc.Evict(key)
 		}
 		arc.t1List.Set(key, value)
+		arc.cacheDirectory[key] = arc.t1List.cache[key]
 	}
 
 	return true
