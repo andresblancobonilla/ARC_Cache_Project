@@ -5,6 +5,8 @@ import (
 )
 
 // An LRU is a fixed-size in-memory cache with least-recently-used eviction
+// This updated LRU supports an ARC, which is meant to be run on fixed-size pages,
+// so it runs on limited entries rather than limited bytes.
 type LRU struct {
 	cache       map[string]Value
 	nodes       *list.List
@@ -18,7 +20,7 @@ type Value struct {
 	element *list.Element
 }
 
-// NewLRU returns a pointer to a new LRU with a capacity to store limit bytes
+// NewLRU returns a pointer to a new LRU with a capacity to store limit entries.
 func NewLRU(limit int) *LRU {
 	var lru LRU
 	lru.cache = make(map[string]Value)
@@ -28,13 +30,6 @@ func NewLRU(limit int) *LRU {
 	lru.stats = Stats{0, 0}
 	return &lru
 }
-
-// func NewVal(bytes []byte, element *list.Element) *Value {
-// 	var value Value
-// 	value.bytes = bytes
-// 	value.element = element
-// 	return &value
-// }
 
 // MaxStorage returns the maximum number of entries this LRU can store
 func (lru *LRU) MaxEntries() int {
