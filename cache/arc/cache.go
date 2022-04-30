@@ -1,4 +1,4 @@
-package cache
+package arc
 
 type Stats struct {
 	Hits   int

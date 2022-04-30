@@ -1,6 +1,7 @@
-package cache
+package arc
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 )
@@ -11,9 +12,9 @@ type ARC struct {
 	t2List         *LRU
 	b1List         *LRU
 	b2List         *LRU
+	cache          map[string][]byte
 	cacheDirectory string
 	targetMarker   int
-	totalUsedBytes int
 	limit          int
 	stats          Stats
 }
@@ -25,7 +26,8 @@ func NewARC(limit int) (*ARC, error) {
 	arc.t2List = NewLRU(limit)
 	arc.b1List = NewLRU(limit)
 	arc.b2List = NewLRU(limit)
-	arc.cacheDirectory = "Cache_Directory"
+	arc.cache = make(map[string][]byte)
+	arc.cacheDirectory = "cache_directory"
 	os.Mkdir(arc.cacheDirectory, 0777)
 	arc.targetMarker = 0
 	arc.limit = limit
@@ -105,12 +107,10 @@ func (arc *ARC) CheckCacheDirectory(key string) (value []byte, okcd bool) {
 
 	if _, found := arc.b1List.Check(key); found {
 		okcd = found
-		okcd = !found
 		value = nil
 	}
 	if _, found := arc.b2List.Check(key); found {
 		okcd = found
-		okcd = !found
 		value = nil
 	}
 
@@ -141,7 +141,8 @@ func (arc *ARC) Remove(key string) (value []byte, ok bool) {
 		if _, found := arc.b2List.Check(key); found {
 			arc.b2List.Remove(key)
 		}
-		//arc.RemoveFromDisk(key)
+		arc.RemoveFromDisk(key)
+		delete(arc.cache, key)
 	}
 	return value, ok
 
@@ -151,15 +152,35 @@ func (arc *ARC) Remove(key string) (value []byte, ok bool) {
 // location of the target marker in order to add a new entry.
 func (arc *ARC) Evict(key string) {
 	t1Len := arc.t1List.Len()
+	bLen := arc.b1List.Len() + arc.b2List.Len()
 	_, b2Hit := arc.b2List.Check(key)
-	var evictedKey string
-	//value, b2Hit := arc.b1List.Check(key)
+
 	if (arc.t1List.Len() > 0) && ((b2Hit && (t1Len == arc.targetMarker)) || (t1Len > arc.targetMarker)) {
-		evictedKey = arc.t1List.Evict()
-		arc.b1List.Set(evictedKey, nil)
+		evictedKey, ok := arc.t1List.Evict()
+		if ok {
+			if bLen == arc.limit {
+				ghostEvictedKey, gok := arc.b1List.Evict()
+				if !gok {
+					ghostEvictedKey, _ = arc.b2List.Evict()
+				}
+				arc.RemoveFromDisk(ghostEvictedKey)
+				delete(arc.cache, ghostEvictedKey)
+			}
+			arc.b1List.Set(evictedKey, nil)
+		}
 	} else {
-		evictedKey = arc.t2List.Evict()
-		arc.b2List.Set(evictedKey, nil)
+		evictedKey, ok := arc.t2List.Evict()
+		if ok {
+			if bLen == arc.limit {
+				ghostEvictedKey, gok := arc.b2List.Evict()
+				if !gok {
+					ghostEvictedKey, _ = arc.b1List.Evict()
+				}
+				arc.RemoveFromDisk(ghostEvictedKey)
+				delete(arc.cache, ghostEvictedKey)
+			}
+			arc.b2List.Set(evictedKey, nil)
+		}
 	}
 }
 
@@ -183,22 +204,24 @@ func (arc *ARC) Access(key string) {
 	b2Len := arc.b2List.Len()
 
 	// Case II: key is found in b1
-	if value, found := arc.b1List.Check(key); found {
+	if _, found := arc.b1List.Check(key); found {
 		ratio := b2Len / b1Len
 		arc.targetMarker = min(arc.limit, arc.targetMarker+max(ratio, 1))
+		value := arc.ReadFromDisk(key)
+		arc.b1List.Set(key, nil)
 		arc.Evict(key)
 		arc.b1List.Remove(key)
-		value = arc.ReadFromDisk(key)
 		arc.t2List.Set(key, value)
 		return
 	}
 	// Case III: key is found in b2
-	if value, found := arc.b2List.Check(key); found {
+	if _, found := arc.b2List.Check(key); found {
 		ratio := b1Len / b2Len
 		arc.targetMarker = max(0, arc.targetMarker-max(ratio, 1))
+		value := arc.ReadFromDisk(key)
+		arc.b2List.Set(key, nil)
 		arc.Evict(key)
 		arc.b2List.Remove(key)
-		value = arc.ReadFromDisk(key)
 		arc.t2List.Set(key, value)
 		return
 	}
@@ -227,31 +250,48 @@ func (arc *ARC) Set(key string, value []byte) bool {
 	// Case IV: key is not found
 	if !inCacheDirectory {
 		// Case (A)
-		var evictedKey string
 		if l1Len == arc.limit {
 			if t1Len < arc.limit {
-				evictedKey = arc.b1List.Evict()
-				//arc.RemoveFromDisk(evictedKey)
+				evictedKey, _ := arc.b1List.Evict()
+				arc.RemoveFromDisk(evictedKey)
+				delete(arc.cache, evictedKey)
 				arc.Evict(key)
 			} else {
-				evictedKey = arc.t1List.Evict()
-				arc.b1List.Set(evictedKey, nil)
+				evictedKey, _ := arc.t1List.Evict()
+				arc.RemoveFromDisk(evictedKey)
+				delete(arc.cache, evictedKey)
 			}
 		}
 
 		// Case (B)
 		if l1Len < arc.limit && totalLen >= arc.limit {
 			if totalLen == 2*arc.limit {
-				arc.b2List.Evict()
-				//arc.RemoveFromDisk(evictedKey)
+				evictedKey, _ := arc.b2List.Evict()
+				arc.RemoveFromDisk(evictedKey)
+				delete(arc.cache, evictedKey)
 			}
 			arc.Evict(key)
 		}
+		t1Len = arc.t1List.Len()
+		b1Len = arc.b1List.Len()
+		t2Len = arc.t2List.Len()
+		b2Len = arc.b2List.Len()
+		l1Len = t1Len + b1Len
+		l2Len = t2Len + b2Len
+		totalLen = l1Len + l2Len
 		arc.t1List.Set(key, value)
 		arc.WriteToDisk(key, value)
+		arc.cache[key] = value
+		t1Len = arc.t1List.Len()
+		b1Len = arc.b1List.Len()
+		t2Len = arc.t2List.Len()
+		b2Len = arc.b2List.Len()
+		l1Len = t1Len + b1Len
+		l2Len = t2Len + b2Len
+		totalLen = l1Len + l2Len
 	}
 
-	return true
+	return false
 
 }
 
@@ -263,6 +303,8 @@ func (arc *ARC) WriteToDisk(key string, value []byte) {
 	if err != nil {
 		panic(err)
 	}
+	// fmt.Println(file.Name())
+	// fmt.Println(path)
 	defer file.Close()
 	file.Write(value)
 }
@@ -270,21 +312,30 @@ func (arc *ARC) WriteToDisk(key string, value []byte) {
 // ReadFromDisk returns the value associated with a key.
 // The value is stored on disk in a file named the same as the key.
 func (arc *ARC) ReadFromDisk(key string) (value []byte) {
-	path := filepath.Join(arc.cacheDirectory, key)
-	file, err := os.Open(path)
-	if err != nil {
-		panic(err)
+	_, found := arc.CheckCacheDirectory(key)
+	if found {
+		path := filepath.Join(arc.cacheDirectory, key)
+		file, err := os.Open(path)
+		if err != nil {
+			panic(err)
+		}
+		defer file.Close()
+		file.Read(value)
+	} else {
+		fmt.Println("not in cache directory")
 	}
-	defer file.Close()
-	file.Read(value)
 	return value
 }
 
 // RemoveFromDisk deletes the file associated with a key on disk.
 func (arc *ARC) RemoveFromDisk(key string) {
 	path := filepath.Join(arc.cacheDirectory, key)
+	if _, err := os.Stat(path); err != nil {
+		fmt.Println("file no exist")
+	}
 	err := os.Remove(path)
 	if err != nil {
+		fmt.Println(key)
 		panic(err)
 	}
 }

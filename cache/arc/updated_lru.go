@@ -1,4 +1,4 @@
-package cache
+package arc
 
 import (
 	"container/list"
@@ -120,13 +120,19 @@ func (lru *LRU) Remove(key string) (value []byte, ok bool) {
 
 // Evict removes the least recently used binding from the LRU
 // and returns the key associated with it.
-func (lru *LRU) Evict() (key string) {
+func (lru *LRU) Evict() (key string, ok bool) {
+
+	ok = false
 	back := lru.nodes.Back()
-	evictedKey := back.Value.(string)
-	lru.usedEntries--
-	lru.nodes.Remove(back)
-	delete(lru.cache, evictedKey)
-	return evictedKey
+	if back != nil {
+		evictedKey := back.Value.(string)
+		lru.usedEntries--
+		lru.nodes.Remove(back)
+		delete(lru.cache, evictedKey)
+		ok = true
+		return evictedKey, ok
+	}
+	return "", ok
 }
 
 // Set associates the given value with the given key, possibly evicting values
@@ -148,9 +154,7 @@ func (lru *LRU) Set(key string, value []byte) bool {
 		// fmt.Println(lru.nodes.Len())
 		// evictedKey := fmt.Sprintf("%v", back.Value)
 		evictedKey := back.Value.(string)
-
 		// fmt.Println(evictedKey)
-
 		lru.usedEntries--
 		lru.nodes.Remove(back)
 		delete(lru.cache, evictedKey)

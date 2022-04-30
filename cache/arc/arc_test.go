@@ -1,9 +1,12 @@
-package cache
+package arc
 
 import (
 	"encoding/binary"
 	"fmt"
 	"math/rand"
+	"os"
+	"path/filepath"
+	"sort"
 	"testing"
 	"time"
 )
@@ -43,6 +46,8 @@ func BenchmarkARC_Rand(b *testing.B) {
 		}
 	}
 	b.Logf("hit: %d miss: %d ratio: %f", hit, miss, float64(hit)/float64(miss))
+	absolutePath, _ := filepath.Abs("./" + l.cacheDirectory)
+	os.RemoveAll(absolutePath)
 }
 
 func BenchmarkARC_Freq(b *testing.B) {
@@ -80,24 +85,64 @@ func BenchmarkARC_Freq(b *testing.B) {
 		}
 	}
 	b.Logf("hit: %d miss: %d ratio: %f", hit, miss, float64(hit)/float64(miss))
+	absolutePath, _ := filepath.Abs("./" + l.cacheDirectory)
+	os.RemoveAll(absolutePath)
 }
 
+// func TestARC_FileRemoval(t *testing.T) {
+// 	size := 3
+// 	l, err := NewARC(size)
+// 	if err != nil {
+// 		t.Fatalf("err: %v", err)
+// 	}
+// 	// Fill t1
+// 	for i := 0; i < 4; i++ {
+// 		b := make([]byte, 8)
+// 		binary.LittleEndian.PutUint64(b, uint64(i))
+// 		s := fmt.Sprintf("%v", i)
+
+// 		l.Set(s, b)
+// 	}
+// 	if n := l.t1List.Len(); n != 4 {
+// 		t.Fatalf("bad: %d", n)
+// 	}
+
+// }
+
 func TestARC_RandomOps(t *testing.T) {
-	size := 128
-	l, err := NewARC(128)
+	size := 3
+	l, err := NewARC(size)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
 
-	n := 200000
+	n := 20000
+	// gfull := false
 	for i := 0; i < n; i++ {
 		key := rand.Int63() % 512
 		s := fmt.Sprintf("%v", key)
 		r := rand.Int63()
+		t1 := l.t1List.Len()
+		t2 := l.t2List.Len()
+		b1 := l.b1List.Len()
+		b2 := l.b2List.Len()
+		// fmt.Print("t1")
+		// fmt.Println(l.t1List.cache)
+		// fmt.Print("t2")
+		// fmt.Println(l.t2List.cache)
+		// fmt.Print("b1")
+		// fmt.Println(l.b1List.cache)
+		// fmt.Print("b2")
+		// fmt.Println(l.b2List.cache)
+		target := l.targetMarker
 		switch r % 3 {
 		case 0:
+			// if gfull {
+			// 	fmt.Println("add when full")
+			// }
 			b := make([]byte, 8)
 			binary.LittleEndian.PutUint64(b, uint64(key))
+
 			l.Set(s, b)
 		case 1:
 			l.Get(s)
@@ -105,15 +150,105 @@ func TestARC_RandomOps(t *testing.T) {
 			l.Remove(s)
 		}
 
+		if l.t1List.Len()+l.b1List.Len() > size {
+			rem := r % 3
+			fmt.Print("case: ")
+			fmt.Println(rem)
+			fmt.Print("prev: ")
+			fmt.Print(t1)
+			fmt.Print(t2)
+			fmt.Print(b1)
+			fmt.Print(b2)
+			t.Fatalf("bad l1: t1: %d t2: %d b1: %d b2: %d p: %d",
+				l.t1List.Len(), l.t2List.Len(), l.b1List.Len(), l.b2List.Len(), l.targetMarker)
+		}
+
+		// if len(l.cache) == size {
+		// 	gfull = true
+		// }
+
 		if l.t1List.Len()+l.t2List.Len() > size {
+			rem := r % 3
+			fmt.Print("case: ")
+			fmt.Println(rem)
+			fmt.Print("prev: ")
+			fmt.Print(t1)
+			fmt.Print(t2)
+			fmt.Print(b1)
+			fmt.Print(b2)
 			t.Fatalf("bad t: t1: %d t2: %d b1: %d b2: %d p: %d",
 				l.t1List.Len(), l.t2List.Len(), l.b1List.Len(), l.b2List.Len(), l.targetMarker)
 		}
+
 		if l.b1List.Len()+l.b2List.Len() > size {
+			rem := r % 3
+			fmt.Print("case: ")
+			fmt.Println(rem)
+			fmt.Print("prev: ")
+			fmt.Print("t1")
+			fmt.Println(l.t1List.cache)
+			fmt.Print("t2")
+			fmt.Println(l.t2List.cache)
+			fmt.Print("b1")
+			fmt.Println(l.b1List.cache)
+			fmt.Print("b2")
+			fmt.Println(l.b2List.cache)
 			t.Fatalf("bad b: t1: %d t2: %d b1: %d b2: %d p: %d",
 				l.t1List.Len(), l.t2List.Len(), l.b1List.Len(), l.b2List.Len(), l.targetMarker)
 		}
+		var cachelist sort.StringSlice
+		var cachelists sort.StringSlice
+		for k, _ := range l.cache {
+			cachelist = append(cachelist, k)
+		}
+		cachelist.Sort()
+		for k, _ := range l.t1List.cache {
+			cachelists = append(cachelists, k)
+		}
+		for k, _ := range l.t2List.cache {
+			cachelists = append(cachelists, k)
+		}
+		for k, _ := range l.b1List.cache {
+			cachelists = append(cachelists, k)
+		}
+		for k, _ := range l.b2List.cache {
+			cachelists = append(cachelists, k)
+		}
+		cachelists.Sort()
+		same := true
+		for i, v := range cachelist {
+			if v != cachelists[i] {
+				same = false
+			}
+		}
+		if !same {
+			rem := r % 3
+			fmt.Print("case: ")
+			fmt.Println(rem)
+			fmt.Print("get: ")
+			fmt.Println(s)
+			fmt.Print("target")
+			fmt.Println(target)
+			fmt.Print("prev: ")
+			fmt.Print("t1")
+			fmt.Println(l.t1List.cache)
+			fmt.Print("t2")
+			fmt.Println(l.t2List.cache)
+			fmt.Print("b1")
+			fmt.Println(l.b1List.cache)
+			fmt.Print("b2")
+			fmt.Println(l.b2List.cache)
+			fmt.Print("cd")
+			fmt.Println(cachelist)
+			t.Fatalf("bad cache directory")
+		}
+
+		// if l.t1List.Len() == 2 && l.t2List.Len() == 0 && l.t2List.Len() == 0 && l.b2List.Len() == 3 && l.targetMarker == 1 {
+		// 	gfull = true
+		// }
 	}
+	absolutePath, _ := filepath.Abs("./" + l.cacheDirectory)
+	os.RemoveAll(absolutePath)
 }
 
 func TestARC_Get_RecentToFrequent(t *testing.T) {
@@ -166,6 +301,8 @@ func TestARC_Get_RecentToFrequent(t *testing.T) {
 	if n := l.t2List.Len(); n != 128 {
 		t.Fatalf("bad: %d", n)
 	}
+	absolutePath, _ := filepath.Abs("./" + l.cacheDirectory)
+	os.RemoveAll(absolutePath)
 }
 
 func TestARC_Set_RecentToFrequent(t *testing.T) {
@@ -208,6 +345,8 @@ func TestARC_Set_RecentToFrequent(t *testing.T) {
 	if n := l.t2List.Len(); n != 1 {
 		t.Fatalf("bad: %d", n)
 	}
+	absolutePath, _ := filepath.Abs("./" + l.cacheDirectory)
+	os.RemoveAll(absolutePath)
 }
 
 func TestARC_Adaptive(t *testing.T) {
@@ -338,6 +477,8 @@ func TestARC_Adaptive(t *testing.T) {
 	// t2 : (MRU) [0, 4, 2, 1] (LRU)
 	// b1 : (MRU) [5, 3] (LRU)
 	// b2 : (MRU) [0] (LRU)
+	absolutePath, _ := filepath.Abs("./" + l.cacheDirectory)
+	os.RemoveAll(absolutePath)
 }
 
 func TestARC(t *testing.T) {
@@ -345,12 +486,29 @@ func TestARC(t *testing.T) {
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
+	//full := false
 
 	for i := 0; i < 256; i++ {
 		b := make([]byte, 8)
 		binary.LittleEndian.PutUint64(b, uint64(i))
 		s := fmt.Sprintf("%v", i)
 		l.Set(s, b)
+		// if full == true && l.Len() < 128 {
+		// 	fmt.Println("t1")
+		// 	fmt.Println(l.t1List.Len())
+		// 	fmt.Println("t2")
+		// 	fmt.Println(l.t2List.Len())
+
+		// }
+		// if l.Len() == 128 {
+		// 	full = true
+		// 	fmt.Println("full")
+		// 	fmt.Println("t1")
+		// 	fmt.Println(l.t1List.Len())
+		// 	fmt.Println("t2")
+		// 	fmt.Println(l.t2List.Len())
+
+		// }
 	}
 	if l.Len() != 128 {
 		t.Fatalf("bad len: %v", l.Len())
@@ -378,4 +536,6 @@ func TestARC(t *testing.T) {
 			t.Fatalf("should be deleted")
 		}
 	}
+	absolutePath, _ := filepath.Abs("./" + l.cacheDirectory)
+	os.RemoveAll(absolutePath)
 }
