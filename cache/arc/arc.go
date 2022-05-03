@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"errors"
 )
 
 // An ARC is a fixed-size in-memory cache with adaptive replacement eviction.
@@ -38,6 +39,9 @@ type ARC struct {
 
 // NewARC returns a pointer to a new ARC with a capacity to store limited entries
 func NewARC(limit int) (*ARC, error) {
+	if limit <= 0 {
+		return nil, errors.New("Capacity must be greater than zero")
+	}
 	var arc ARC
 	arc.t1List = NewLRU(limit)
 	arc.t2List = NewLRU(limit)

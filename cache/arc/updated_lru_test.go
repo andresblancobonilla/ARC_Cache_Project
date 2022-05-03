@@ -4,8 +4,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math/rand"
-	// "os"
-	// "path/filepath"
 	"testing"
 	"time"
 )
@@ -25,7 +23,6 @@ func BenchmarkLRU_Rand(b *testing.B) {
 
 	b.ResetTimer()
 
-	var hit, miss int
 	for i := 0; i < 2*b.N; i++ {
 		s := fmt.Sprintf("%v", trace[i])
 		if i%2 == 0 {
@@ -34,18 +31,13 @@ func BenchmarkLRU_Rand(b *testing.B) {
 
 			l.Set(s, b)
 		} else {
-			_, ok := l.Get(s)
-			if ok {
-				hit++
-			} else {
-				miss++
-			}
+			l.Get(s)
 		}
 	}
-	b.Logf(fmt.Sprintf("%v", l.Stats()))
-	b.Logf("hit: %d miss: %d ratio: %f", hit, miss, float64(hit)/float64(miss))
-	// absolutePath, _ := filepath.Abs("./" + l.cacheDirectory)
-	// os.RemoveAll(absolutePath)
+	hits := l.stats.Hits
+	misses := l.stats.Misses
+	b.Logf("hit: %d miss: %d ratio: %f", hits, misses, float64(hits)/float64(misses))
+	
 }
 
 // Compute hit ratio for a linear sequence of accesses
@@ -70,18 +62,12 @@ func BenchmarkLRU_Freq(b *testing.B) {
 
 		l.Set(s, b)
 	}
-	var hit, miss int
 	for i := 0; i < b.N; i++ {
 		s := fmt.Sprintf("%v", trace[i])
-		_, ok := l.Get(s)
-		if ok {
-			hit++
-		} else {
-			miss++
-		}
+		l.Get(s)
 	}
-	b.Logf(fmt.Sprintf("%v", l.Stats()))
-	b.Logf("hit: %d miss: %d ratio: %f", hit, miss, float64(hit)/float64(miss))
-	// absolutePath, _ := filepath.Abs("./" + l.cacheDirectory)
-	// os.RemoveAll(absolutePath)
+	hits := l.stats.Hits
+	misses := l.stats.Misses
+	b.Logf("hit: %d miss: %d ratio: %f", hits, misses, float64(hits)/float64(misses))
+	
 }

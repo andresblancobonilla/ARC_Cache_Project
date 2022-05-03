@@ -1,0 +1,30 @@
+goos: darwin
+goarch: arm64
+BenchmarkARC_Rand-8   	   27338	     41866 ns/op
+--- BENCH: BenchmarkARC_Rand-8
+    arc_test.go:44: hit: 0 miss: 1 ratio: 0.000000
+    arc_test.go:44: hit: 0 miss: 100 ratio: 0.000000
+    arc_test.go:44: hit: 1277 miss: 8278 ratio: 0.154264
+    arc_test.go:44: hit: 5762 miss: 18639 ratio: 0.309137
+BenchmarkARC_Freq-8   	   28971	     48888 ns/op
+--- BENCH: BenchmarkARC_Freq-8
+    arc_test.go:80: hit: 1 miss: 0 ratio: +Inf
+    arc_test.go:80: hit: 100 miss: 0 ratio: +Inf
+    arc_test.go:80: hit: 6284 miss: 0 ratio: +Inf
+    arc_test.go:80: hit: 12339 miss: 2980 ratio: 4.140604
+BenchmarkLRU_Rand-8   	 3564554	       340.5 ns/op
+--- BENCH: BenchmarkLRU_Rand-8
+    updated_lru_test.go:39: hit: 0 miss: 1 ratio: 0.000000
+    updated_lru_test.go:39: hit: 1 miss: 99 ratio: 0.010101
+    updated_lru_test.go:39: hit: 1403 miss: 8597 ratio: 0.163196
+    updated_lru_test.go:39: hit: 249357 miss: 750643 ratio: 0.332191
+    updated_lru_test.go:39: hit: 890443 miss: 2674111 ratio: 0.332987
+BenchmarkLRU_Freq-8   	 3681067	       331.9 ns/op
+--- BENCH: BenchmarkLRU_Freq-8
+    updated_lru_test.go:71: hit: 1 miss: 0 ratio: +Inf
+    updated_lru_test.go:71: hit: 100 miss: 0 ratio: +Inf
+    updated_lru_test.go:71: hit: 9842 miss: 158 ratio: 62.291139
+    updated_lru_test.go:71: hit: 312498 miss: 687502 ratio: 0.454541
+    updated_lru_test.go:71: hit: 1135481 miss: 2545586 ratio: 0.446059
+PASS
+ok  	_/Users/vicky/Desktop/COS316/Assignments/COS316_A6/cache/arc	7.058s

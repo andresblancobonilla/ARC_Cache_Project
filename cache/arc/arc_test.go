@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+	// "sort"
 )
 
 func init() {
@@ -28,7 +29,6 @@ func BenchmarkARC_Rand(b *testing.B) {
 
 	b.ResetTimer()
 
-	// var hit, miss int
 	for i := 0; i < 2*b.N; i++ {
 		s := fmt.Sprintf("%v", trace[i])
 		if i%2 == 0 {
@@ -37,23 +37,14 @@ func BenchmarkARC_Rand(b *testing.B) {
 
 			l.Set(s, b)
 		} else {
-			// _, ok := l.Get(s)
-			// if ok {
-			// 	hit++
-			// } else {
-			// 	miss++
-			// }
 			l.Get(s)
 		}
 	}
-	b.Logf(fmt.Sprintf("%v", l.Stats()))
 	hits := l.stats.Hits
 	misses := l.stats.Misses
-	// b.Logf(fmt.Sprintf("%f", l.Stats()[0] ))
-	// b.Logf("hit: %d miss: %d ratio: %f", hit, miss, float64(hit)/float64(miss))
 	b.Logf("hit: %d miss: %d ratio: %f", hits, misses, float64(hits)/float64(misses))
-	// absolutePath, _ := filepath.Abs("./" + l.cacheDirectory)
-	// os.RemoveAll(absolutePath)
+	absolutePath, _ := filepath.Abs("./" + l.cacheDirectory)
+	os.RemoveAll(absolutePath)
 }
 
 // Compute hit ratio for a linear sequence of accesses
@@ -81,28 +72,19 @@ func BenchmarkARC_Freq(b *testing.B) {
 
 		l.Set(s, b)
 	}
-	// var hit, miss int
 	for i := 0; i < b.N; i++ {
 		s := fmt.Sprintf("%v", trace[i])
-		// _, ok := l.Get(s)
-		// if ok {
-		// 	hit++
-		// } else {
-		// 	miss++
-		// }
 		l.Get(s)
 	}
-	b.Logf(fmt.Sprintf("%v", l.Stats()))
 	hits := l.stats.Hits
 	misses := l.stats.Misses
 	b.Logf("hit: %d miss: %d ratio: %f", hits, misses, float64(hits)/float64(misses))
-	// b.Logf("hit: %d miss: %d ratio: %f", hit, miss, float64(hit)/float64(miss))
-	// absolutePath, _ := filepath.Abs("./" + l.cacheDirectory)
-	// os.RemoveAll(absolutePath)
+	absolutePath, _ := filepath.Abs("./" + l.cacheDirectory)
+	os.RemoveAll(absolutePath)
 }
 
 func TestARC_RandomOps(t *testing.T) {
-	size := 3
+	size := 128
 	l, err := NewARC(size)
 	if err != nil {
 		t.Fatalf("err: %v", err)
@@ -187,68 +169,106 @@ func TestARC_RandomOps(t *testing.T) {
 			t.Fatalf("bad b: t1: %d t2: %d b1: %d b2: %d p: %d",
 				l.t1List.Len(), l.t2List.Len(), l.b1List.Len(), l.b2List.Len(), l.targetMarker)
 		}
-
 		
-
-		// cache list appends all keys into a string in sorted order, and compares the two list and checks that nothing was deleted that wasn't supposed to be
-		// basically comparing the in-memory cache (lru list) and the disk-based cache (file path)
-		// added elements of in-memory cache to disk-based cache (cannot fetch page from the disk)
-
-
-		// var cachelist sort.StringSlice
-		// var cachelists sort.StringSlice
-		// for k, _ := range l.cache {
-		// 	cachelist = append(cachelist, k)
-		// }
-		// cachelist.Sort()
-		// for k, _ := range l.t1List.cache {
-		// 	cachelists = append(cachelists, k)
-		// }
-		// for k, _ := range l.t2List.cache {
-		// 	cachelists = append(cachelists, k)
-		// }
-		// for k, _ := range l.b1List.cache {
-		// 	cachelists = append(cachelists, k)
-		// }
-		// for k, _ := range l.b2List.cache {
-		// 	cachelists = append(cachelists, k)
-		// }
-		// cachelists.Sort()
-		// same := true
-		// for i, v := range cachelist {
-		// 	if v != cachelists[i] {
-		// 		same = false
-		// 	}
-		// }
-		// if !same {
-		// 	rem := r % 3
-		// 	fmt.Print("case: ")
-		// 	fmt.Println(rem)
-		// 	fmt.Print("get: ")
-		// 	fmt.Println(s)
-		// 	fmt.Print("target")
-		// 	fmt.Println(target)
-		// 	fmt.Print("prev: ")
-		// 	fmt.Print("t1")
-		// 	fmt.Println(l.t1List.cache)
-		// 	fmt.Print("t2")
-		// 	fmt.Println(l.t2List.cache)
-		// 	fmt.Print("b1")
-		// 	fmt.Println(l.b1List.cache)
-		// 	fmt.Print("b2")
-		// 	fmt.Println(l.b2List.cache)
-		// 	fmt.Print("cd")
-		// 	fmt.Println(cachelist)
-		// 	t.Fatalf("bad cache directory")
-		// }
-
-		// if l.t1List.Len() == 2 && l.t2List.Len() == 0 && l.t2List.Len() == 0 && l.b2List.Len() == 3 && l.targetMarker == 1 {
-		// 	gfull = true
-		// }
 	}
 	absolutePath, _ := filepath.Abs("./" + l.cacheDirectory)
 	os.RemoveAll(absolutePath)
 }
+
+// Boundary tests for an empty ARC
+func TestARC_Boundary(t *testing.T) {
+	
+	// check that an ARC with zero capacity cannot be populated
+	_, err := NewARC(0)
+	if err == nil {
+		t.Fatalf("err: %v", err)
+	}
+
+	// boundary tests for set(), remove(), get()
+	
+	l, err := NewARC(1)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+
+	// check that arc handles exceeding capacity
+	for i := 0; i < 2; i++ {
+		b := make([]byte, 8)
+		binary.LittleEndian.PutUint64(b, uint64(i))
+		s := fmt.Sprintf("%v", i)
+
+		l.Set(s, b)
+	}
+
+	if n := l.Len(); n != 1 {
+		t.Fatalf("Set incorrect: %d", n)
+	}
+
+	// check that removing from an empty ARC has no effect
+	for i := 0; i < 2; i++ {
+		b := make([]byte, 8)
+		binary.LittleEndian.PutUint64(b, uint64(i))
+		s := fmt.Sprintf("%v", i)
+
+		l.Remove(s)
+	}
+
+	if n := l.Len(); n != 0 {
+		t.Fatalf("Remove incorrect: %d", n)
+	}
+
+	// check that getting from an empty ARC has no effect
+	b := make([]byte, 8)
+	binary.LittleEndian.PutUint64(b, uint64(1))
+	s := fmt.Sprintf("%v", 1)
+	l.Get(s)
+
+	if n := l.Len(); n != 0 {
+		t.Fatalf("Get incorrect: %d", n)
+	}
+} 
+
+// This test requires us to create an extra map only for testing, so we are not using it 
+// compares entries of in-memory cache and disk-based cache for ARC
+// cache list appends all keys of both caches into a string in sorted order, and compares the two lists 
+
+// func TestARC_MemoryToDisk(t *testing.T) {
+
+// 	size := 3
+// 	l, err := NewARC(size)
+// 	if err != nil {
+// 		t.Fatalf("err: %v", err)
+// 	}
+	
+// 		var cachelist sort.StringSlice
+// 		var cachelists sort.StringSlice
+// 		for k, _ := range l.cache {
+// 			cachelist = append(cachelist, k)
+// 		}
+// 		cachelist.Sort()
+// 		for k, _ := range l.t1List.cache {
+// 			cachelists = append(cachelists, k)
+// 		}
+// 		for k, _ := range l.t2List.cache {
+// 			cachelists = append(cachelists, k)
+// 		}
+// 		for k, _ := range l.b1List.cache {
+// 			cachelists = append(cachelists, k)
+// 		}
+// 		for k, _ := range l.b2List.cache {
+// 			cachelists = append(cachelists, k)
+// 		}
+// 		cachelists.Sort()
+// 		same := true
+// 		for i, v := range cachelist {
+// 			if v != cachelists[i] {
+// 				same = false
+// 			}
+// 		}
+// 		if !same {
+// 			t.Fatalf("bad cache directory")
+// 		}
+// }
 
 // Tests max entries and remaining spaces
 func TestARC_Values(t *testing.T) {
@@ -407,7 +427,8 @@ func TestARC_Set_RecentToFrequent(t *testing.T) {
 }
 
 
-// Tests migration entries between t1, t2, b1 and b2 based on ARC policy
+// Tests different logical paths of execution;
+// migration of entries between t1, t2, b1 and b2 based on ARC policy
 func TestARC_Adaptive(t *testing.T) {
 	l, err := NewARC(4)
 	if err != nil {
@@ -530,8 +551,6 @@ func TestARC_Adaptive(t *testing.T) {
 	if l.targetMarker != 0 {
 		t.Fatalf("bad: %d", l.targetMarker)
 	}
-
-	fmt.Println(l.Stats())
 
 	// Current state
 	// t1 : (MRU) [] (LRU)
