@@ -16,7 +16,7 @@ type ARC struct {
 	t1List *LRU
 	t2List *LRU
 	// b1List and b2List have nil associated with their keys.
-	// They are ghost list meant for keeping track
+	// They are ghost lists meant for keeping track
 	// of the recently evicted keys only.
 	b1List *LRU
 	b2List *LRU
@@ -29,7 +29,7 @@ type ARC struct {
 	// Target size of T1, which adapts depending on ghost list hits.
 	targetMarker int
 	// The maximum number of entries that can be added to the cache.
-	// Also, T1 + T2 <= c, B1 + B2 <= c, L1 <= c, L1 + L2 <= 2c
+	// Also, T1 + T2 <= limit, B1 + B2 <= limit, L1 <= limit, L1 + L2 <= 2*limit
 	limit int
 	stats Stats
 	// map was used for testing
@@ -162,7 +162,7 @@ func (arc *ARC) Remove(key string) (value []byte, ok bool) {
 
 }
 
-// Evict evicts an entry adaptably from either T1 or T2 (into B1 or B2),
+// Evict evicts an entry adaptively from either T1 or T2 (into B1 or B2),
 // depending on the location of the target marker, in order to add a new entry.
 func (arc *ARC) Evict(key string) {
 	t1Len := arc.t1List.Len()
@@ -173,7 +173,7 @@ func (arc *ARC) Evict(key string) {
 	if (arc.t1List.Len() > 0) && ((b2Hit && (t1Len == arc.targetMarker)) || (t1Len > arc.targetMarker)) {
 		evictedKey, ok := arc.t1List.Evict()
 		if ok {
-			// If adding an entry will violate B1 + B2 <= c, Evict() clears a space
+			// If adding an entry will violate B1 + B2 <= limit, Evict() clears a space
 			// from the appropriate ghost list.
 			if bLen == arc.limit {
 				ghostEvictedKey, gok := arc.b1List.Evict()
@@ -231,7 +231,7 @@ func (arc *ARC) Access(key string) {
 		// Fetch B1's value from the on-disk cache directory.
 		value := arc.ReadFromDisk(key)
 		// Corner case: Evict might end up deleting key from the on-disk cache directory,
-		// if it is the LRU entry in B1.
+		// if it is the least recently used entry in B1.
 		// Move key to the front of B1 to prevent this from happening.
 		arc.b1List.Set(key, nil)
 		arc.Evict(key)
@@ -240,7 +240,7 @@ func (arc *ARC) Access(key string) {
 		arc.t2List.Set(key, value)
 		return
 	}
-	// Case III: key is found in b2
+	// Case III: key is found in B2
 	if _, found := arc.b2List.Check(key); found {
 		// Adapt the target marker.
 		ratio := b1Len / b2Len
@@ -248,7 +248,7 @@ func (arc *ARC) Access(key string) {
 		// Fetch B2's value from the on-disk cache directory.
 		value := arc.ReadFromDisk(key)
 		// Corner case: Evict might end up deleting key from the on-disk cache directory,
-		// if it is the LRU entry in B2.
+		// if it is the least recently used entry in B2.
 		// Move key to the front of B2 to prevent this from happening.
 		arc.b2List.Set(key, nil)
 		arc.Evict(key)
@@ -283,7 +283,7 @@ func (arc *ARC) Set(key string, value []byte) (ok bool) {
 
 	// Case IV: key is not found
 	if !inCacheDirectory {
-		// Case (A)
+		// Case (A): when L1 has exactly arc.limit number of pages
 		if l1Len == arc.limit {
 			if t1Len < arc.limit {
 				evictedKey, _ := arc.b1List.Evict()
@@ -297,7 +297,7 @@ func (arc *ARC) Set(key string, value []byte) (ok bool) {
 			}
 		}
 
-		// Case (B)
+		// Case (B): when L1 has less than arc.limit number of pages
 		if l1Len < arc.limit && totalLen >= arc.limit {
 			if totalLen == 2*arc.limit {
 				evictedKey, _ := arc.b2List.Evict()
